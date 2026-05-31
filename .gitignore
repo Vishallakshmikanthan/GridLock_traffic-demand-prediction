@@ -74,6 +74,8 @@ docs/_build/
 # PyBuilder
 target/
 
+catboost_info/
+
 # Jupyter Notebook
 .ipynb_checkpoints
 
