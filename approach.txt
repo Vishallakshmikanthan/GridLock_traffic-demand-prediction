@@ -1,0 +1,172 @@
+===========================================================
+  GRIDLOCK HACKATHON 2.0 — PHASE 1 SOLUTION WRITEUP
+  Team: VISHAL L · SNEHA C
+  Task: Predict normalised vehicle demand (target: `demand`)
+  Metric: R² (coefficient of determination)
+===========================================================
+
+-----------------------------------------------------------
+1. APPROACH OVERVIEW
+-----------------------------------------------------------
+We trained an Optuna-optimised CatBoost Regressor on the full
+77 k-row training set. The solution evolved through five
+successive stages:
+
+  Stage 1  CatBoost Baseline           (catboost_baseline.csv)
+  Stage 2  CatBoost Advanced           (catboost_advanced.csv)
+  Stage 3  LightGBM sklearn Pipeline   (lgb_pipeline_submission.csv)
+  Stage 4  Weighted CB + LGB Ensemble  (ensemble_cb_lgb_submission.csv)
+  Stage 5  Optuna-tuned CB + LGB       (ensemble_opt_submission.csv)
+  Stage 6  Full-data Optuna CatBoost   (submission.csv)  <-- FINAL
+
+The final model (submission.csv) is a standalone Optuna-tuned
+CatBoost retrained on 100 % of the labelled data, using native
+categorical encoding for all string columns.
+
+-----------------------------------------------------------
+2. PREPROCESSING
+-----------------------------------------------------------
+Applied identically to train and test to prevent data leakage:
+
+  • Timestamp parsing   — "H:MM" string → integer hour + minute.
+  • Missing value imputation
+      - Temperature     → training-set median
+      - Categorical cols (RoadType, LargeVehicles, Landmarks,
+                          Weather) → literal "Unknown"
+  • Geohash label encoding — LabelEncoder fit on union of
+      train + test geohashes to avoid unseen-label errors.
+  • Prediction clipping — predictions clipped to [0, ∞).
+
+-----------------------------------------------------------
+3. FEATURE ENGINEERING
+-----------------------------------------------------------
+
+3.1  Basic Time Features
+  • hour, minute          — raw intra-day components
+  • dayofweek             — 0 (Mon) … 6 (Sun)
+  • is_weekend            — binary flag Sat/Sun
+  • time_bucket / shift   — Night(0) / Morning(1) /
+                            Afternoon(2) / Evening(3)
+  • is_morning_rush       — 07:00–09:59
+  • is_evening_rush       — 17:00–19:59
+
+3.2  Cyclical Time Encoding
+  Sine/cosine encoding wraps the periodic boundary of hour,
+  minute, and day-of-week so the model can learn that hour 23
+  and hour 0 are adjacent:
+    hour_sin = sin(2π·hour / 24),  hour_cos = cos(2π·hour / 24)
+    min_sin  = sin(2π·min  / 60),  min_cos  = cos(2π·min  / 60)
+    dow_sin  = sin(2π·dow  /  7),  dow_cos  = cos(2π·dow  /  7)
+
+3.3  Geohash Spatial Features
+  • Lat/lon decoding via pygeohash → raw GPS coordinates.
+  • Frequency encoding — normalised occurrence count of each
+    geohash (computed on train only).
+  • Out-of-Fold Target Encoding — smoothed mean demand per
+    geohash using 5-fold OOF to eliminate leakage.
+
+3.4  Weather Features
+  • is_rainy, is_foggy        — binary flags from Weather column
+  • is_hot (>35 °C), is_cold (<15 °C) — temperature thresholds
+  • temp_bin                  — temperature binned into 5 levels
+  • rain_x_rush               — rain × rush-hour interaction
+  • temp_x_shift              — temperature × time-shift interaction
+
+3.5  Road Context Features
+  • road_capacity_score   — ordinal: Residential=1 … Highway=4
+  • road_capacity_proxy   — road_capacity_score × NumberofLanes
+  • road_type_encoded     — label-encoded road type
+
+3.6  Landmark Proximity Features
+  Gaussian-decay proximity score from a curated database of
+  airports, stadiums, hospitals, malls, and train stations:
+    landmark_proximity_score = Σ exp(−d²/(2σ²))  (σ = 2 km)
+  • nearest_landmark_km   — raw distance to closest landmark
+
+3.7  Lag & Rolling Demand Features  (highest importance)
+  • demand_lag_1h         — demand at same cell, 1 step ago
+  • demand_lag_24h        — same cell, 24 steps ago (yesterday)
+  • demand_lag_168h       — same cell, 168 steps ago (last week)
+  • demand_roll_mean_3h   — trailing 3-step mean per geohash
+  • demand_roll_mean_24h  — trailing 24-step mean per geohash
+  • demand_roll_std_24h   — trailing 24-step std (volatility)
+  • geohash_hour_mean_demand — historical mean per (geohash, hour)
+  All lag/rolling features are computed with a forward-shift
+  to avoid leakage; test values are back-filled from train tail.
+
+-----------------------------------------------------------
+4. MODELS USED
+-----------------------------------------------------------
+
+CatBoost Baseline
+  iterations=300, learning_rate=0.1, depth=6
+  Features: geohash_encoded, hour, day, dayofweek, is_weekend
+
+CatBoost Advanced
+  iterations=500, learning_rate=0.05, depth=8, early_stopping=30
+  Full ~30-feature set
+
+LightGBM sklearn Pipeline
+  sklearn Pipeline: ColumnTransformer (median impute + StandardScaler)
+    → LGBMRegressor (n_estimators=1000, lr=0.03, num_leaves=63,
+                     subsample=0.8, colsample_bytree=0.8)
+  5-fold KFold CV with per-fold early stopping (patience=20)
+
+Ensemble — CatBoost + LightGBM
+  ŷ = α·ŷ_CatBoost + (1−α)·ŷ_LightGBM
+  Optimal α found via OOF R² grid search (step 0.025, no leakage)
+
+Optuna Hyperparameter Optimisation (CatBoost)
+  Bayesian TPE sampler, 50 trials, objective = max 5-fold OOF R²
+  Search space:
+    iterations        300 – 1000
+    learning_rate     0.005 – 0.15 (log)
+    depth             4 – 10
+    l2_leaf_reg       1 – 15 (log)
+    bagging_temperature 0.0 – 1.0
+    random_strength   0.5 – 10.0 (log)
+    min_data_in_leaf  1 – 50
+
+Final Model (submission.csv)
+  Optuna-optimised CatBoost retrained on full 77 k train set.
+  Native categorical encoding for: geohash, RoadType,
+  LargeVehicles, Landmarks, Weather.
+  Features: geohash, day, hour, minute, hour_sin, hour_cos,
+  min_sin, min_cos, NumberofLanes, Temperature, RoadType,
+  LargeVehicles, Landmarks, Weather.
+
+-----------------------------------------------------------
+5. TOOLS & LIBRARIES
+-----------------------------------------------------------
+  Python        3.10+
+  pandas        ≥2.0     — data loading, manipulation
+  numpy         ≥1.24    — numerical operations
+  scikit-learn  ≥1.2     — pipelines, CV, preprocessing
+  CatBoost      latest   — gradient boosting (primary model)
+  LightGBM      ≥4.0     — gradient boosting (ensemble)
+  XGBoost       ≥2.0     — explored during baseline
+  Optuna        latest   — Bayesian hyperparameter optimisation
+  pygeohash     latest   — geohash → lat/lon decoding
+  matplotlib    ≥3.7     — visualisations
+  seaborn       ≥0.12    — EDA plots
+  Jupyter       ≥1.0     — interactive exploration
+
+-----------------------------------------------------------
+6. EVALUATION METRIC
+-----------------------------------------------------------
+  R² (coefficient of determination):
+    R² = 1 − [Σ(yᵢ − ŷᵢ)²] / [Σ(yᵢ − ȳ)²]
+
+  R²=1.0 → perfect; R²=0.0 → mean baseline; R²<0 → worse than mean.
+
+-----------------------------------------------------------
+7. FILES INCLUDED IN THIS ARCHIVE
+-----------------------------------------------------------
+  approach.txt              — this file
+  src/__init__.py           — package init
+  src/features.py           — reusable feature engineering utilities
+  src/train.py              — model training script template
+  notebooks/01_EDA.ipynb    — full EDA → modelling → submission
+  requirements.txt          — Python dependencies
+  README.md                 — full project documentation
+===========================================================
