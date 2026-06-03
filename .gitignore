@@ -131,3 +131,12 @@ credentials.json
 *.key
 *.pem
 .env
+
+# Workspace specific
+/catboost_info/
+/data/
+/.venv/
+/.venv-1/
+*.csv
+!submissions/*.csv
+!data/sample_submission.csv

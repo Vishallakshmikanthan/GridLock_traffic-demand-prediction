@@ -7,6 +7,41 @@
 
 ---
 
+## 🚦 Traffic Prediction for Everyone (Summary)
+
+**What is this?**  
+Imagine trying to guess how many cars will be on a specific street in Bengaluru at 6:00 PM today. That's exactly what this project does. We built an AI system that "looks" at past traffic patterns, the weather, and whether there are landmarks (like malls or hospitals) nearby to predict the traffic demand.
+
+**Why does it matter?**  
+Traffic isn't just an annoyance; it's a huge waste of time and energy. By predicting "demand" (how many vehicles are likely to be in a road cell), city planners and navigation apps can suggest better routes, adjust signal timings, and help Bengaluru move faster.
+
+**How does it work?**  
+Our AI (Models like **LightGBM** and **CatBoost**) "learned" from 77,000 traffic observations. It discovered that:
+1.  **Time is Key:** Traffic peaks at specific hours (morning and evening rushes).
+2.  **Recent History:** The best predictor of traffic right now is how much traffic was there 1 hour ago.
+3.  **Local Context:** Certain road types (like Primary roads) consistently have higher demand.
+4.  **Weather Matters:** Rain increases demand in some areas while decreasing it in others.
+
+---
+
+## 📊 Training & Visualization Results
+
+Below are the visual insights from our best-performing "Ultimate" model.
+
+### 📈 EDA Overview: Understanding the Data
+![EDA Overview](submissions/eda_overview.png)  
+*This chart shows how traffic demand varies by time of day (left) and how different road types contribute to the overall congestion (right). Notice the clear "M-shaped" pattern of morning and evening rush hours.*
+
+### 🎯 Feature Importance: What Drives the Predictions?
+![Feature Importance](submissions/feature_importance.png)  
+*Our model ranks "Demand Lag" (previous hour's traffic) and "Geohash Target Encoding" (historical average of that specific spot) as the most critical factors. Location coordinates (Latitude/Longitude) also play a huge role.*
+
+### 🧬 Optuna Optimization: Fine-Tuning the AI
+![Optuna History](submissions/optuna_history.png)  
+*We used Bayesian Optimization (Optuna) to test 50 different "brain configurations" for our model. Each dot represents a trial; the blue line shows our score (R²) improving as the AI finds the perfect balance of parameters.*
+
+---
+
 ## Table of Contents
 
 1. [Hackathon Description](#hackathon-description)
@@ -60,14 +95,15 @@ This repository covers our **Phase 1** solution: a traffic demand prediction ML 
 
 The solution progresses through four modelling stages, each building on the previous:
 
-| Stage | Description | Submission |
-|-------|-------------|------------|
-| **Baseline** | CatBoost with basic time features | `catboost_baseline.csv` |
-| **Advanced** | CatBoost + full feature engineering | `catboost_advanced.csv` |
-| **LightGBM Pipeline** | sklearn `Pipeline` with 5-fold CV | `lgb_pipeline_submission.csv` |
-| **Ensemble** | Weighted average CatBoost + LightGBM | `ensemble_cb_lgb_submission.csv` |
-| **Optimised Ensemble** | Optuna-tuned CatBoost + LightGBM blend | `ensemble_opt_submission.csv` |
-| **Final** | Optuna-optimised CatBoost on real 77 k data | `submission.csv` |
+| Stage | Notebook | Description | Submission |
+|-------|----------|-------------|------------|
+| **Baseline** | `01_EDA.ipynb` | CatBoost with basic time features | `catboost_baseline.csv` |
+| **Advanced** | `01_EDA.ipynb` | CatBoost + feature engineering | `catboost_advanced.csv` |
+| **LGBM Pipe** | `01_EDA.ipynb` | sklearn `Pipeline` with 5-fold CV | `lgb_pipeline_submission.csv` |
+| **Ensemble** | `02_Advanced.ipynb` | Weighted average CatBoost + LightGBM | `ensemble_opt_submission.csv` |
+| **Ultimate** | `03_Ultimate.ipynb` | **111 features**, Optuna, Triple Interactions | `submission.csv` |
+
+> **Best Score:** Our Ultimate Model achieved an **R² of ~0.975** (97.5%) on the leaderboard.
 
 ---
 
@@ -78,22 +114,19 @@ Gridlock/
 ├── data/
 │   ├── train.csv                  # Training data (77 k rows)
 │   ├── test.csv                   # Test data for inference
-│   ├── sample_submission.csv      # Expected submission format
-│   ├── raw/                       # Read-only original data dump
-│   └── processed/                 # Cleaned / transformed data
+│   └── raw/                       # Original data backup
 ├── notebooks/
-│   └── 01_EDA.ipynb               # Full EDA → modelling → submission pipeline
+│   ├── 01_EDA.ipynb               # Discovery & Initial Modelling
+│   ├── 02_Advanced_Model.ipynb    # Multi-model Ensembling
+│   └── 03_Ultimate_Model.ipynb    # Final Master Pipeline (Best Results)
 ├── src/
-│   ├── __init__.py
-│   ├── features.py                # Reusable feature engineering utilities
-│   └── train.py                   # Training script template
-├── submissions/
-│   ├── catboost_baseline.csv
-│   ├── catboost_advanced.csv
-│   ├── lgb_pipeline_submission.csv
-│   ├── ensemble_cb_lgb_submission.csv
-│   ├── ensemble_opt_submission.csv
-│   └── submission.csv             # ← Final competition submission
+│   ├── features.py                # Reusable feature engineering logic
+│   └── train.py                   # Model training script
+├── submissions/                   # Submission CSVs & Training Plots
+│   ├── submission.csv             # ← Final competition submission
+│   ├── eda_overview.png
+│   ├── feature_importance.png
+│   └── optuna_history.png
 ├── requirements.txt
 └── README.md
 ```
@@ -301,35 +334,30 @@ data/
 
 > The notebook also tries `data/raw/` as a fallback path. If your files are in `data/raw/`, no changes are needed.
 
-### 3. Run the notebook end-to-end
+### 3. Run the "Ultimate" Model
+
+The best results are achieved by running the master notebook:
 
 ```bash
-jupyter notebook notebooks/01_EDA.ipynb
+jupyter notebook notebooks/03_Ultimate_Model.ipynb
 ```
 
-Execute all cells in order. The notebook is fully self-contained — each section builds on the previous and writes submission CSVs automatically to the `submissions/` folder.
+This notebook performs:
+- Extensive feature engineering (**111 features**).
+- **Optuna** tuning for CatBoost.
+- Final prediction with **Index alignment fix** to ensure leaderboard accuracy.
 
-**Key sections in `01_EDA.ipynb`:**
+**Other Notebooks:**
+- `01_EDA.ipynb`: Initial exploration and comparison of encoding techniques.
+- `02_Advanced_Model.ipynb`: Experiments with ensembling and standard pipelines.
 
-| Section | Cells | Output |
-|---------|-------|--------|
-| Data loading & EDA | 1–4 | Shape, dtypes, missing-value report |
-| Baseline feature engineering | 5–9 | `catboost_baseline.csv` |
-| Advanced feature engineering | 10–14 | All engineered features |
-| Categorical encoding comparison | 15–21 | R² comparison table |
-| LightGBM sklearn pipeline + 5-fold CV | 22–25 | `lgb_pipeline_submission.csv` |
-| CatBoost + LightGBM ensemble | 26–28 | `ensemble_cb_lgb_submission.csv` |
-| Optuna hyperparameter optimisation | 29–30 | `ensemble_opt_submission.csv` |
-| Final model on real data | 31 | `submission.csv` |
+### 4. Run via Command Line (Alternative)
 
-### 4. Run the training script (optional)
+For long-running training sessions, you can use the provided script:
 
 ```bash
-cd src
-python train.py
+python scripts/run_ultimate.py
 ```
-
-This script demonstrates an XGBoost baseline on synthetic data. Update the data path and feature list to match your setup.
 
 ---
 
